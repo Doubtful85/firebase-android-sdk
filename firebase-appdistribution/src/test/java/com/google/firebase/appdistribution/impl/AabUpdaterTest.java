@@ -95,7 +95,7 @@ public class AabUpdaterTest {
         Mockito.spy(
             new AabUpdater(mockLifecycleNotifier, mockHttpsUrlConnectionFactory, testExecutor));
 
-    when(mockLifecycleNotifier.applyToForegroundActivity(any()))
+    when(mockLifecycleNotifier.consumeForegroundActivity(any()))
         .thenAnswer(applyToForegroundActivityAnswer(activity));
   }
 

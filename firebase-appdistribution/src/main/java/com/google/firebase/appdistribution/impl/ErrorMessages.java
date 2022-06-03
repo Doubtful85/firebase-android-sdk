@@ -26,7 +26,7 @@ class ErrorMessages {
       "Failed to authenticate the tester. The tester was either not signed in, or something went wrong. Try signing in again.";
 
   static final String AUTHORIZATION_ERROR =
-      "Failed to authorize the tester. The tester is not authorized to test this app. Verify that the tester has accepted an invitation to test this app.";
+      "Failed to authorize the tester. The tester does not have access to this resource (or it may not exist).";
 
   static final String AUTHENTICATION_CANCELED = "Tester canceled the authentication flow.";
 

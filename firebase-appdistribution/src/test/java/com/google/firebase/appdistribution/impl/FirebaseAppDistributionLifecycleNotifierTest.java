@@ -50,7 +50,7 @@ public class FirebaseAppDistributionLifecycleNotifierTest {
   @Test
   public void applyToForegroundActivity_noCurrentActivity_succeedsAndCallsConsumer() {
     ActivityConsumer consumer = spy(ActivityConsumer.class);
-    Task<Void> task = lifecycleNotifier.applyToForegroundActivity(consumer);
+    Task<Void> task = lifecycleNotifier.consumeForegroundActivity(consumer);
 
     // Simulate an activity resuming
     lifecycleNotifier.onActivityResumed(activity);
@@ -68,7 +68,7 @@ public class FirebaseAppDistributionLifecycleNotifierTest {
     lifecycleNotifier.onActivityResumed(activity);
 
     ActivityConsumer consumer = spy(ActivityConsumer.class);
-    Task<Void> task = lifecycleNotifier.applyToForegroundActivity(consumer);
+    Task<Void> task = lifecycleNotifier.consumeForegroundActivity(consumer);
 
     assertThat(task.isComplete()).isTrue();
     assertThat(task.isSuccessful()).isTrue();
@@ -81,7 +81,7 @@ public class FirebaseAppDistributionLifecycleNotifierTest {
     RuntimeException consumerException = new RuntimeException("exception in consumer");
     ActivityConsumer consumer = spy(ActivityConsumer.class);
     doThrow(consumerException).when(consumer).consume(activity);
-    Task<Void> task = lifecycleNotifier.applyToForegroundActivity(consumer);
+    Task<Void> task = lifecycleNotifier.consumeForegroundActivity(consumer);
 
     // Simulate an activity resuming
     lifecycleNotifier.onActivityResumed(activity);

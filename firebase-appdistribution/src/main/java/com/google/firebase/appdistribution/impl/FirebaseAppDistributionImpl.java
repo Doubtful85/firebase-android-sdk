@@ -24,6 +24,8 @@ import static com.google.firebase.appdistribution.impl.TaskUtils.safeSetTaskResu
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Bitmap.Config;
 import androidx.annotation.GuardedBy;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -56,7 +58,8 @@ class FirebaseAppDistributionImpl implements FirebaseAppDistribution {
   private final ApkUpdater apkUpdater;
   private final AabUpdater aabUpdater;
   private final SignInStorage signInStorage;
-  private final FeedbackManager feedbackManager;
+  private final FirebaseAppDistributionTesterApiClient testerApiClient;
+  private final ApkHashExtractor apkHashExtractor;
 
   private final Object updateIfNewReleaseTaskLock = new Object();
 
@@ -88,14 +91,16 @@ class FirebaseAppDistributionImpl implements FirebaseAppDistribution {
       @NonNull AabUpdater aabUpdater,
       @NonNull SignInStorage signInStorage,
       @NonNull FirebaseAppDistributionLifecycleNotifier lifecycleNotifier,
-      @NonNull FeedbackManager feedbackManager) {
+      @NonNull FirebaseAppDistributionTesterApiClient testerApiClient,
+      @NonNull ApkHashExtractor apkHashExtractor) {
     this.firebaseApp = firebaseApp;
     this.testerSignInManager = testerSignInManager;
     this.newReleaseFetcher = newReleaseFetcher;
     this.apkUpdater = apkUpdater;
     this.aabUpdater = aabUpdater;
     this.signInStorage = signInStorage;
-    this.feedbackManager = feedbackManager;
+    this.testerApiClient = testerApiClient;
+    this.apkHashExtractor = apkHashExtractor;
     this.lifecycleNotifier = lifecycleNotifier;
     lifecycleNotifier.addOnActivityDestroyedListener(this::onActivityDestroyed);
     lifecycleNotifier.addOnActivityPausedListener(this::onActivityPaused);
@@ -301,11 +306,63 @@ class FirebaseAppDistributionImpl implements FirebaseAppDistribution {
   public void collectAndSendFeedback() {
     testerSignInManager
         .signInTester()
-        .addOnSuccessListener(unused -> feedbackManager.collectAndSendFeedback())
         .addOnFailureListener(
             e ->
                 LogWrapper.getInstance()
-                    .e("Failed to sign in tester. Could not collect feedback.", e));
+                    .e("Failed to sign in tester. Could not collect feedback.", e))
+        .onSuccessTask(unused -> findRelease())
+        .onSuccessTask(
+            releaseName ->
+                // TODO(lkellogg): launch FeedbackActivity here
+                collectFeedbackText()
+                    .onSuccessTask(
+                        feedbackText -> testerApiClient.createFeedback(releaseName, feedbackText)))
+        .onSuccessTask(
+            feedbackName ->
+                takeScreenshot()
+                    .onSuccessTask(
+                        screenshot -> testerApiClient.attachScreenshot(feedbackName, screenshot)))
+        .onSuccessTask(feedbackName -> testerApiClient.commitFeedback(feedbackName))
+        .addOnFailureListener(e -> LogWrapper.getInstance().e("Failed to submit feedback", e));
+  }
+
+  // TODO(lkellogg): refactor this, ApkHashExtractor, and ReleaseIdentificationUtils into
+  // "ReleaseIdentifier"
+  private Task<String> findRelease() {
+    Context context = firebaseApp.getApplicationContext();
+
+    // Attempt to find release using IAS artifact ID, which identifies app bundle releases
+    String iasArtifactId = null;
+    try {
+      iasArtifactId = ReleaseIdentificationUtils.extractInternalAppSharingArtifactId(context);
+    } catch (FirebaseAppDistributionException e) {
+      LogWrapper.getInstance()
+          .e(
+              "Error extracting IAS artifact ID to identify app bundle. Assuming release is an APK.",
+              e);
+    }
+    if (iasArtifactId != null) {
+      return testerApiClient.findReleaseUsingIasArtifactId(iasArtifactId);
+    }
+
+    // If we can't find an IAS artifact ID, we assume the installed release is an APK
+    String apkHash;
+    try {
+      apkHash = apkHashExtractor.extractApkHash();
+    } catch (FirebaseAppDistributionException e) {
+      return Tasks.forException(e);
+    }
+    return testerApiClient.findReleaseUsingApkHash(apkHash);
+  }
+
+  // TODO(lkellogg): Actually prompt and collect feedback
+  private Task<String> collectFeedbackText() {
+    return Tasks.forResult("This app is cool!");
+  }
+
+  // TODO(lkellogg): Actually take a screenshot
+  private Task<Bitmap> takeScreenshot() {
+    return Tasks.forResult(Bitmap.createBitmap(400, 400, Config.RGB_565));
   }
 
   @VisibleForTesting

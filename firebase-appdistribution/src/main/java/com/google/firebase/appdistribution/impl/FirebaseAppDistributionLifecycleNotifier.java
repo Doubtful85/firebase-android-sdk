@@ -35,8 +35,13 @@ class FirebaseAppDistributionLifecycleNotifier implements Application.ActivityLi
   private static final Executor DIRECT_EXECUTOR = Runnable::run;
 
   /** A functional interface for a function that takes an activity and does something with it. */
-  interface ActivityConsumer<T> {
+  interface ActivityConsumer {
     void consume(Activity activity);
+  }
+
+  /** A functional interface for a function that takes an activity returns a value. */
+  interface ActivityFunction<T> {
+    T apply(Activity activity);
   }
 
   private static FirebaseAppDistributionLifecycleNotifier instance;
@@ -103,7 +108,7 @@ class FirebaseAppDistributionLifecycleNotifier implements Application.ActivityLi
    * on the main thread or the calling thread, depending on whether or not there is already a
    * foreground activity available when this method is called.
    */
-  Task<Void> applyToForegroundActivity(ActivityConsumer consumer) {
+  Task<Void> consumeForegroundActivity(ActivityConsumer consumer) {
     return getForegroundActivity()
         .onSuccessTask(
             // Use direct executor to ensure the consumer is called while Activity is in foreground
@@ -112,6 +117,28 @@ class FirebaseAppDistributionLifecycleNotifier implements Application.ActivityLi
               try {
                 consumer.consume(activity);
                 return Tasks.forResult(null);
+              } catch (Throwable t) {
+                return Tasks.forException(FirebaseAppDistributionExceptions.wrap(t));
+              }
+            });
+  }
+
+  /**
+   * Apply a function to a foreground activity, when one is available, returning a {@link Task} that
+   * will complete with the function result immediately after the function is applied.
+   *
+   * <p>The consumer function will be called immediately once the activity is available. This may be
+   * on the main thread or the calling thread, depending on whether or not there is already a
+   * foreground activity available when this method is called.
+   */
+  <T> Task<T> applyToForegroundActivity(ActivityFunction<T> function) {
+    return getForegroundActivity()
+        .onSuccessTask(
+            // Use direct executor to ensure the consumer is called while Activity is in foreground
+            DIRECT_EXECUTOR,
+            activity -> {
+              try {
+                return Tasks.forResult(function.apply(activity));
               } catch (Throwable t) {
                 return Tasks.forException(FirebaseAppDistributionExceptions.wrap(t));
               }

@@ -129,7 +129,7 @@ public class TesterSignInManagerTest {
     activity = Robolectric.buildActivity(TestActivity.class).create().get();
     shadowActivity = shadowOf(activity);
 
-    when(mockLifecycleNotifier.applyToForegroundActivity(any()))
+    when(mockLifecycleNotifier.consumeForegroundActivity(any()))
         .thenAnswer(applyToForegroundActivityAnswer(activity));
 
     testerSignInManager =
@@ -155,7 +155,7 @@ public class TesterSignInManagerTest {
   public void signInTester_whenUnexpectedFailureInTask_failsWithUnknownError() {
     Exception unexpectedException = new Exception("unexpected exception");
     // Raise an unexpected exception in our handler passed to applyToForegroundActivity
-    when(mockLifecycleNotifier.applyToForegroundActivity(any()))
+    when(mockLifecycleNotifier.consumeForegroundActivity(any()))
         .thenAnswer(unused -> Tasks.forException(unexpectedException));
 
     Task signInTask = testerSignInManager.signInTester();
