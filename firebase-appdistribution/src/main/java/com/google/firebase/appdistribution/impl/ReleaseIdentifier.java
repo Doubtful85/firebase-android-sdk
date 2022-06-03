@@ -14,12 +14,15 @@
 
 package com.google.firebase.appdistribution.impl;
 
-import static com.google.firebase.appdistribution.impl.ReleaseIdentificationUtils.getPackageInfoWithMetadata;
-
 import android.content.Context;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
+import com.google.android.gms.tasks.Task;
+import com.google.android.gms.tasks.Tasks;
+import com.google.firebase.FirebaseApp;
 import com.google.firebase.appdistribution.FirebaseAppDistributionException;
 import com.google.firebase.appdistribution.FirebaseAppDistributionException.Status;
 import java.io.File;
@@ -35,17 +38,89 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/** Extracts a hash of the installed APK. */
-class ApkHashExtractor {
+/** Identifies the installed release using binary identifiers. */
+class ReleaseIdentifier {
 
   private static final String TAG = "ApkHashExtractor";
   private static final int BYTES_IN_LONG = 8;
+  private static final int NO_FLAGS = 0;
+  static final String IAS_ARTIFACT_ID_METADATA_KEY = "com.android.vending.internal.apk.id";
 
   private final ConcurrentMap<String, String> cachedApkHashes = new ConcurrentHashMap<>();
-  private Context applicationContext;
+  private FirebaseApp firebaseApp;
+  FirebaseAppDistributionTesterApiClient testerApiClient;
 
-  ApkHashExtractor(Context applicationContext) {
-    this.applicationContext = applicationContext;
+  ReleaseIdentifier(
+      FirebaseApp firebaseApp, FirebaseAppDistributionTesterApiClient testerApiClient) {
+    this.firebaseApp = firebaseApp;
+    this.testerApiClient = testerApiClient;
+  }
+
+  /** Identify the currently installed release, returning the release name. */
+  Task<String> identifyRelease() {
+    Context context = firebaseApp.getApplicationContext();
+
+    // Attempt to find release using IAS artifact ID, which identifies app bundle releases
+    String iasArtifactId = null;
+    try {
+      iasArtifactId = extractInternalAppSharingArtifactId(context);
+    } catch (FirebaseAppDistributionException e) {
+      LogWrapper.getInstance()
+          .i(
+              "Error extracting IAS artifact ID to identify app bundle. Assuming release is an APK.");
+    }
+    if (iasArtifactId != null) {
+      return testerApiClient.findReleaseUsingIasArtifactId(iasArtifactId);
+    }
+
+    // If we can't find an IAS artifact ID, we assume the installed release is an APK
+    String apkHash;
+    try {
+      apkHash = extractApkHash();
+    } catch (FirebaseAppDistributionException e) {
+      return Tasks.forException(e);
+    }
+    return testerApiClient.findReleaseUsingApkHash(apkHash);
+  }
+
+  /**
+   * Get the package info for the currently installed app.
+   *
+   * @throws FirebaseAppDistributionException if the package name can't be found.
+   */
+  static PackageInfo getPackageInfo(Context context) throws FirebaseAppDistributionException {
+    return getPackageInfoWithFlags(context, NO_FLAGS);
+  }
+
+  /**
+   * Get the package info for the currently installed app, with the PackageManager.GET_META_DATA
+   * flag set.
+   *
+   * @throws FirebaseAppDistributionException if the package name can't be found.
+   */
+  static PackageInfo getPackageInfoWithMetadata(Context context)
+      throws FirebaseAppDistributionException {
+    return getPackageInfoWithFlags(context, PackageManager.GET_META_DATA);
+  }
+
+  private static PackageInfo getPackageInfoWithFlags(Context context, int flags)
+      throws FirebaseAppDistributionException {
+    try {
+      return context.getPackageManager().getPackageInfo(context.getPackageName(), flags);
+    } catch (PackageManager.NameNotFoundException e) {
+      throw new FirebaseAppDistributionException(
+          "Unable to find package with name " + context.getPackageName(), Status.UNKNOWN, e);
+    }
+  }
+
+  @Nullable
+  static String extractInternalAppSharingArtifactId(@NonNull Context appContext)
+      throws FirebaseAppDistributionException {
+    PackageInfo packageInfo = getPackageInfoWithMetadata(appContext);
+    if (packageInfo.applicationInfo.metaData == null) {
+      throw new FirebaseAppDistributionException("Missing package info metadata", Status.UNKNOWN);
+    }
+    return packageInfo.applicationInfo.metaData.getString(IAS_ARTIFACT_ID_METADATA_KEY);
   }
 
   /**
@@ -54,7 +129,8 @@ class ApkHashExtractor {
    * <p>The result is stored in an in-memory cache to avoid computing it repeatedly.
    */
   String extractApkHash() throws FirebaseAppDistributionException {
-    PackageInfo metadataPackageInfo = getPackageInfoWithMetadata(applicationContext);
+    PackageInfo metadataPackageInfo =
+        getPackageInfoWithMetadata(firebaseApp.getApplicationContext());
     String installedReleaseApkHash = extractApkHash(metadataPackageInfo);
     if (installedReleaseApkHash == null || installedReleaseApkHash.isEmpty()) {
       throw new FirebaseAppDistributionException(
@@ -75,6 +151,7 @@ class ApkHashExtractor {
     return cachedApkHashes.get(key);
   }
 
+  @VisibleForTesting
   @Nullable
   String calculateApkHash(@NonNull File file) {
     LogWrapper.getInstance()

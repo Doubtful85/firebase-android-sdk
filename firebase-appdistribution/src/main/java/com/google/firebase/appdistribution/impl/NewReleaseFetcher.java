@@ -14,7 +14,8 @@
 
 package com.google.firebase.appdistribution.impl;
 
-import static com.google.firebase.appdistribution.impl.ReleaseIdentificationUtils.getPackageInfo;
+import static com.google.firebase.appdistribution.impl.ReleaseIdentifier.extractInternalAppSharingArtifactId;
+import static com.google.firebase.appdistribution.impl.ReleaseIdentifier.getPackageInfo;
 
 import android.content.Context;
 import androidx.annotation.NonNull;
@@ -25,8 +26,6 @@ import com.google.android.gms.tasks.Tasks;
 import com.google.firebase.appdistribution.BinaryType;
 import com.google.firebase.appdistribution.FirebaseAppDistributionException;
 import com.google.firebase.appdistribution.FirebaseAppDistributionException.Status;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * Class that handles fetching the latest release from App Distribution and determining if it is a
@@ -36,20 +35,18 @@ class NewReleaseFetcher {
   private static final String TAG = "CheckForNewReleaseClient:";
 
   private final FirebaseAppDistributionTesterApiClient firebaseAppDistributionTesterApiClient;
-  private final ApkHashExtractor apkHashExtractor;
+  private final ReleaseIdentifier releaseIdentifier;
   private final Context context;
-  // Maintain an in-memory mapping from source file to APK hash to avoid re-calculating the hash
-  private static final ConcurrentMap<String, String> cachedApkHashes = new ConcurrentHashMap<>();
 
   Task<AppDistributionReleaseInternal> cachedCheckForNewRelease = null;
 
   NewReleaseFetcher(
       @NonNull Context applicationContext,
       @NonNull FirebaseAppDistributionTesterApiClient firebaseAppDistributionTesterApiClient,
-      ApkHashExtractor apkHashExtractor) {
+      ReleaseIdentifier releaseIdentifier) {
     this.firebaseAppDistributionTesterApiClient = firebaseAppDistributionTesterApiClient;
     this.context = applicationContext;
-    this.apkHashExtractor = apkHashExtractor;
+    this.releaseIdentifier = releaseIdentifier;
   }
 
   @NonNull
@@ -129,8 +126,7 @@ class NewReleaseFetcher {
 
     String installedIasArtifactId;
     try {
-      installedIasArtifactId =
-          ReleaseIdentificationUtils.extractInternalAppSharingArtifactId(context);
+      installedIasArtifactId = extractInternalAppSharingArtifactId(context);
     } catch (FirebaseAppDistributionException e) {
       LogWrapper.getInstance()
           .w(
@@ -153,7 +149,7 @@ class NewReleaseFetcher {
 
   private boolean hasSameHashAsInstalledRelease(AppDistributionReleaseInternal newRelease)
       throws FirebaseAppDistributionException {
-    String installedReleaseApkHash = apkHashExtractor.extractApkHash();
+    String installedReleaseApkHash = releaseIdentifier.extractApkHash();
     if (newRelease.getApkHash().isEmpty()) {
       throw new FirebaseAppDistributionException(
           "Missing APK hash from new release", Status.UNKNOWN);

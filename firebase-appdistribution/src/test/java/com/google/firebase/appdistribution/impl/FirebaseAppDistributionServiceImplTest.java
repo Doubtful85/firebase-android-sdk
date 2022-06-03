@@ -124,9 +124,7 @@ public class FirebaseAppDistributionServiceImplTest {
   @Mock private AabUpdater mockAabUpdater;
   @Mock private SignInStorage mockSignInStorage;
   @Mock private FirebaseAppDistributionLifecycleNotifier mockLifecycleNotifier;
-  @Mock private FirebaseAppDistributionTesterApiClient mockTesterApiClient;
-  @Mock private ApkHashExtractor mockApkHashExtractor;
-  private TestActivity mockedActivity;
+  @Mock private ReleaseIdentifier mockReleaseIdentifier;
 
   static class TestActivity extends Activity {}
 
@@ -156,8 +154,7 @@ public class FirebaseAppDistributionServiceImplTest {
                 mockAabUpdater,
                 mockSignInStorage,
                 mockLifecycleNotifier,
-                mockTesterApiClient,
-                mockApkHashExtractor));
+                mockReleaseIdentifier));
 
     when(mockTesterSignInManager.signInTester()).thenReturn(Tasks.forResult(null));
 

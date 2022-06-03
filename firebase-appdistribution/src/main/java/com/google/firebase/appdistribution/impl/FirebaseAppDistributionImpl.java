@@ -18,12 +18,14 @@ import static com.google.firebase.appdistribution.FirebaseAppDistributionExcepti
 import static com.google.firebase.appdistribution.FirebaseAppDistributionException.Status.AUTHENTICATION_FAILURE;
 import static com.google.firebase.appdistribution.FirebaseAppDistributionException.Status.HOST_ACTIVITY_INTERRUPTED;
 import static com.google.firebase.appdistribution.FirebaseAppDistributionException.Status.UPDATE_NOT_AVAILABLE;
+import static com.google.firebase.appdistribution.impl.FeedbackActivity.RELEASE_NAME_KEY;
 import static com.google.firebase.appdistribution.impl.TaskUtils.safeSetTaskException;
 import static com.google.firebase.appdistribution.impl.TaskUtils.safeSetTaskResult;
 
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.Config;
 import androidx.annotation.GuardedBy;
@@ -58,8 +60,7 @@ class FirebaseAppDistributionImpl implements FirebaseAppDistribution {
   private final ApkUpdater apkUpdater;
   private final AabUpdater aabUpdater;
   private final SignInStorage signInStorage;
-  private final FirebaseAppDistributionTesterApiClient testerApiClient;
-  private final ApkHashExtractor apkHashExtractor;
+  private final ReleaseIdentifier releaseIdentifier;
 
   private final Object updateIfNewReleaseTaskLock = new Object();
 
@@ -91,16 +92,14 @@ class FirebaseAppDistributionImpl implements FirebaseAppDistribution {
       @NonNull AabUpdater aabUpdater,
       @NonNull SignInStorage signInStorage,
       @NonNull FirebaseAppDistributionLifecycleNotifier lifecycleNotifier,
-      @NonNull FirebaseAppDistributionTesterApiClient testerApiClient,
-      @NonNull ApkHashExtractor apkHashExtractor) {
+      @NonNull ReleaseIdentifier releaseIdentifier) {
     this.firebaseApp = firebaseApp;
     this.testerSignInManager = testerSignInManager;
     this.newReleaseFetcher = newReleaseFetcher;
     this.apkUpdater = apkUpdater;
     this.aabUpdater = aabUpdater;
     this.signInStorage = signInStorage;
-    this.testerApiClient = testerApiClient;
-    this.apkHashExtractor = apkHashExtractor;
+    this.releaseIdentifier = releaseIdentifier;
     this.lifecycleNotifier = lifecycleNotifier;
     lifecycleNotifier.addOnActivityDestroyedListener(this::onActivityDestroyed);
     lifecycleNotifier.addOnActivityPausedListener(this::onActivityPaused);
@@ -310,49 +309,18 @@ class FirebaseAppDistributionImpl implements FirebaseAppDistribution {
             e ->
                 LogWrapper.getInstance()
                     .e("Failed to sign in tester. Could not collect feedback.", e))
-        .onSuccessTask(unused -> findRelease())
-        .onSuccessTask(
-            releaseName ->
-                // TODO(lkellogg): launch FeedbackActivity here
-                collectFeedbackText()
-                    .onSuccessTask(
-                        feedbackText -> testerApiClient.createFeedback(releaseName, feedbackText)))
-        .onSuccessTask(
-            feedbackName ->
-                takeScreenshot()
-                    .onSuccessTask(
-                        screenshot -> testerApiClient.attachScreenshot(feedbackName, screenshot)))
-        .onSuccessTask(feedbackName -> testerApiClient.commitFeedback(feedbackName))
-        .addOnFailureListener(e -> LogWrapper.getInstance().e("Failed to submit feedback", e));
+        .onSuccessTask(unused -> releaseIdentifier.identifyRelease())
+        .onSuccessTask(this::launchFeedbackActivity)
+        .addOnFailureListener(e -> LogWrapper.getInstance().e("Failed to launch feedback flow", e));
   }
 
-  // TODO(lkellogg): refactor this, ApkHashExtractor, and ReleaseIdentificationUtils into
-  // "ReleaseIdentifier"
-  private Task<String> findRelease() {
-    Context context = firebaseApp.getApplicationContext();
-
-    // Attempt to find release using IAS artifact ID, which identifies app bundle releases
-    String iasArtifactId = null;
-    try {
-      iasArtifactId = ReleaseIdentificationUtils.extractInternalAppSharingArtifactId(context);
-    } catch (FirebaseAppDistributionException e) {
-      LogWrapper.getInstance()
-          .e(
-              "Error extracting IAS artifact ID to identify app bundle. Assuming release is an APK.",
-              e);
-    }
-    if (iasArtifactId != null) {
-      return testerApiClient.findReleaseUsingIasArtifactId(iasArtifactId);
-    }
-
-    // If we can't find an IAS artifact ID, we assume the installed release is an APK
-    String apkHash;
-    try {
-      apkHash = apkHashExtractor.extractApkHash();
-    } catch (FirebaseAppDistributionException e) {
-      return Tasks.forException(e);
-    }
-    return testerApiClient.findReleaseUsingApkHash(apkHash);
+  private Task<Void> launchFeedbackActivity(String releaseName) {
+    return lifecycleNotifier.consumeForegroundActivity(
+        activity -> {
+          Intent intent = new Intent(activity, FeedbackActivity.class);
+          intent.putExtra(RELEASE_NAME_KEY, releaseName);
+          activity.startActivity(intent);
+        });
   }
 
   // TODO(lkellogg): Actually prompt and collect feedback

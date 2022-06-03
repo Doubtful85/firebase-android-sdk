@@ -61,7 +61,7 @@ public class NewReleaseFetcherTest {
   private ShadowPackageManager shadowPackageManager;
 
   @Mock private FirebaseAppDistributionTesterApiClient mockFirebaseAppDistributionTesterApiClient;
-  @Mock private ApkHashExtractor mockApkHashExtractor;
+  @Mock private ReleaseIdentifier mockReleaseIdentifier;
 
   Executor testExecutor = Executors.newSingleThreadExecutor();
 
@@ -88,14 +88,14 @@ public class NewReleaseFetcherTest {
     packageInfo.versionName = "1.0";
     shadowPackageManager.installPackage(packageInfo);
 
-    when(mockApkHashExtractor.extractApkHash()).thenReturn(CURRENT_APK_HASH);
+    when(mockReleaseIdentifier.extractApkHash()).thenReturn(CURRENT_APK_HASH);
 
     newReleaseFetcher =
         spy(
             new NewReleaseFetcher(
                 ApplicationProvider.getApplicationContext(),
                 mockFirebaseAppDistributionTesterApiClient,
-                mockApkHashExtractor));
+                mockReleaseIdentifier));
   }
 
   @Test
